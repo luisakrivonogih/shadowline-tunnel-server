@@ -112,7 +112,7 @@ func findEntry(firstBytes []byte, ciphers []*list.Element, l *slog.Logger) (*Cip
 	return nil, nil
 }
 
-type StreamAuthenticateFunc func(clientConn transport.StreamConn) (string, transport.StreamConn, *onet.ConnectionError)
+type StreamAuthenticateFunc func(clientConn transport.StreamConn) (string, []byte, string, transport.StreamConn, *onet.ConnectionError)
 
 // NewShadowsocksStreamAuthenticator creates a stream authenticator that uses Shadowsocks.
 // TODO(fortuna): Offer alternative transports.
@@ -123,13 +123,13 @@ func NewShadowsocksStreamAuthenticator(ciphers CipherList, replayCache *ReplayCa
 	if l == nil {
 		l = noopLogger()
 	}
-	return func(clientConn transport.StreamConn) (string, transport.StreamConn, *onet.ConnectionError) {
+	return func(clientConn transport.StreamConn) (string, []byte, string, transport.StreamConn, *onet.ConnectionError) {
 		// Find the cipher and acess key id.
 		cipherEntry, clientReader, clientSalt, timeToCipher, keyErr := findAccessKey(clientConn, remoteIP(clientConn), ciphers, l)
 		metrics.AddCipherSearch(keyErr == nil, timeToCipher)
 		if keyErr != nil {
 			const status = "ERR_CIPHER"
-			return "", nil, onet.NewConnectionError(status, "Failed to find a valid cipher", keyErr)
+			return "", nil, "", nil, onet.NewConnectionError(status, "Failed to find a valid cipher", keyErr)
 		}
 		var id string
 		if cipherEntry != nil {
@@ -146,13 +146,13 @@ func NewShadowsocksStreamAuthenticator(ciphers CipherList, replayCache *ReplayCa
 			} else {
 				status = "ERR_REPLAY_CLIENT"
 			}
-			return id, nil, onet.NewConnectionError(status, "Replay detected", nil)
+			return id, nil, "", nil, onet.NewConnectionError(status, "Replay detected", nil)
 		}
 
 		ssr := shadowsocks.NewReader(clientReader, cipherEntry.CryptoKey)
 		ssw := shadowsocks.NewWriter(clientConn, cipherEntry.CryptoKey)
 		ssw.SetSaltGenerator(cipherEntry.SaltGenerator)
-		return id, transport.WrapConn(clientConn, ssr, ssw), nil
+		return id, clientSalt, cipherEntry.Secret, transport.WrapConn(clientConn, ssr, ssw), nil
 	}
 }
 
@@ -332,7 +332,7 @@ func (h *streamHandler) handleConnection(ctx context.Context, outerConn transpor
 	}
 	outerConn.SetReadDeadline(readDeadline)
 
-	id, innerConn, authErr := h.authenticate(outerConn)
+	id, salt, secret, innerConn, authErr := h.authenticate(outerConn)
 	if authErr != nil {
 		// Drain to protect against probing attacks.
 		h.absorbProbe(outerConn, connMetrics, authErr.Status, proxyMetrics)
@@ -348,6 +348,20 @@ func (h *streamHandler) handleConnection(ctx context.Context, outerConn transpor
 		// Drain to prevent a close on cipher error.
 		io.Copy(io.Discard, outerConn)
 		return onet.NewConnectionError("ERR_READ_ADDRESS", "Failed to get target address", err)
+	}
+
+	// Check whether this specific connection speaks Shadowline Extended
+	// Framing (see shadowline_ext.go). A vanilla Outline client using the
+	// very same access key will simply fail the marker check and fall
+	// through to unmodified behavior. A genuine error here (as opposed to
+	// "nothing arrived") means the post-address stream was corrupted, which
+	// is exactly what would otherwise have surfaced as an ERR_RELAY_CLIENT
+	// a little later, during proxyConnection's relay -- classify it the
+	// same way.
+	innerConn, err = negotiateServerExtension(innerConn, secret, salt)
+	if err != nil {
+		io.Copy(io.Discard, outerConn)
+		return onet.NewConnectionError("ERR_RELAY_CLIENT", "Failed to relay traffic from client", err)
 	}
 
 	dialer := transport.FuncStreamDialer(func(ctx context.Context, addr string) (transport.StreamConn, error) {

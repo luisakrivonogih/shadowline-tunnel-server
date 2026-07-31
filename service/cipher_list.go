@@ -31,7 +31,12 @@ type CipherEntry struct {
 	ID            string
 	CryptoKey     *shadowsocks.EncryptionKey
 	SaltGenerator ServerSaltGenerator
-	lastClientIP  netip.Addr
+	// Secret is the access key's plaintext pre-shared secret. It's kept
+	// alongside CryptoKey (which is derived from it) so the Shadowline
+	// extension marker (see shadowline_ext.go) can be computed per
+	// connection without re-deriving it from configuration each time.
+	Secret       string
+	lastClientIP netip.Addr
 }
 
 // MakeCipherEntry constructs a CipherEntry.
@@ -49,6 +54,7 @@ func MakeCipherEntry(id string, cryptoKey *shadowsocks.EncryptionKey, secret str
 		ID:            id,
 		CryptoKey:     cryptoKey,
 		SaltGenerator: saltGenerator,
+		Secret:        secret,
 	}
 }
 
