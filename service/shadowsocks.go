@@ -51,6 +51,7 @@ type ssService struct {
 
 	streamDialer   transport.StreamDialer
 	packetListener transport.PacketListener
+	keyRoutes      map[string]KeyRoute
 }
 
 // NewShadowsocksHandlers creates new Shadowsocks stream and packet handlers.
@@ -79,12 +80,20 @@ func NewShadowsocksHandlers(opts ...Option) (StreamHandler, AssociationHandler) 
 	if s.streamDialer != nil {
 		sh.SetTargetDialer(s.streamDialer)
 	}
+	keyDialers := make(map[string]transport.StreamDialer, len(s.keyRoutes))
+	keyListeners := make(map[string]transport.PacketListener, len(s.keyRoutes))
+	for id, route := range s.keyRoutes {
+		keyDialers[id] = route.StreamDialer
+		keyListeners[id] = route.PacketListener
+	}
+	sh.(*streamHandler).keyDialers = keyDialers
 	sh.SetLogger(s.logger)
 
 	ah := NewAssociationHandler(s.ciphers, udpShadowsocksConnMetrics)
 	if s.packetListener != nil {
 		ah.SetTargetPacketListener(s.packetListener)
 	}
+	ah.(*associationHandler).keyListeners = keyListeners
 	ah.SetLogger(s.logger)
 
 	return sh, ah

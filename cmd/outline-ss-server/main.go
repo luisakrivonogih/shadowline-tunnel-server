@@ -199,6 +199,31 @@ func (ls *listenerSet) Len() int {
 	return len(ls.listenerCloseFuncs)
 }
 
+func keyConfigsOf(legacy []LegacyKeyServiceConfig) []KeyConfig {
+	keys := make([]KeyConfig, len(legacy))
+	for i, k := range legacy {
+		keys[i] = k.KeyConfig
+	}
+	return keys
+}
+
+// makeKeyRoutes builds the per-key routes of the keys that override how
+// their traffic leaves (fwmark and/or socks5).
+func makeKeyRoutes(keys []KeyConfig, natTimeout time.Duration) (map[string]service.KeyRoute, error) {
+	routes := make(map[string]service.KeyRoute)
+	for _, key := range keys {
+		if key.Fwmark == 0 && key.Socks5 == "" {
+			continue
+		}
+		route, err := service.MakeKeyRoute(key.Fwmark, key.Socks5, natTimeout)
+		if err != nil {
+			return nil, fmt.Errorf("key %v: %w", key.ID, err)
+		}
+		routes[key.ID] = route
+	}
+	return routes, nil
+}
+
 func (s *OutlineServer) runConfig(config Config) (func() error, error) {
 	startErrCh := make(chan error)
 	stopErrCh := make(chan error)
@@ -255,6 +280,10 @@ func (s *OutlineServer) runConfig(config Config) (func() error, error) {
 				entry := service.MakeCipherEntry(keyConfig.ID, cryptoKey, keyConfig.Secret)
 				cipherList.PushBack(&entry)
 			}
+			keyRoutes, err := makeKeyRoutes(keyConfigsOf(config.Keys), s.natTimeout)
+			if err != nil {
+				return err
+			}
 			for portNum, cipherList := range portCiphers {
 				// NOTE: We explicitly construct the address string with only the port
 				// number. This will result in an address that listens on all available
@@ -269,6 +298,7 @@ func (s *OutlineServer) runConfig(config Config) (func() error, error) {
 					service.WithMetrics(s.serviceMetrics),
 					service.WithReplayCache(&s.replayCache),
 					service.WithPacketListener(service.MakeTargetUDPListener(onet.RequirePublicIP, s.natTimeout, 0)),
+					service.WithKeyRoutes(keyRoutes),
 					service.WithLogger(slog.Default()),
 				)
 				ln, err := lnSet.ListenStream(addr)

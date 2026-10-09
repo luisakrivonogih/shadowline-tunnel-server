@@ -95,6 +95,8 @@ type associationHandler struct {
 	ssm               ShadowsocksConnMetrics
 	targetIPValidator onet.TargetIPValidator
 	targetListener    transport.PacketListener
+	// keyListeners overrides targetListener for clients of the given access key IDs.
+	keyListeners map[string]transport.PacketListener
 }
 
 var _ AssociationHandler = (*associationHandler)(nil)
@@ -195,7 +197,11 @@ func (h *associationHandler) HandleAssociation(ctx context.Context, clientConn n
 				}
 
 				// Create the target connection.
-				targetConn, err = h.targetListener.ListenPacket(ctx)
+				listener := h.targetListener
+				if kl, ok := h.keyListeners[keyID]; ok {
+					listener = kl
+				}
+				targetConn, err = listener.ListenPacket(ctx)
 				if err != nil {
 					return onet.NewConnectionError("ERR_CREATE_SOCKET", "Failed to create a `PacketConn`", err)
 				}

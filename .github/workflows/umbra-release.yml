@@ -1,0 +1,33 @@
+# Release linux builds of outline-ss-server (Shadowline) for the Umbra
+# panel's deploy scripts. Tags look like umbra-v1.
+name: Umbra release
+
+on:
+  push:
+    tags:
+      - umbra-v*
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: go test ./service/... ./net/...
+      - name: Build
+        run: |
+          mkdir dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags '-s -w' \
+              -o dist/outline-ss-server-linux-$arch ./cmd/outline-ss-server
+          done
+          (cd dist && sha256sum outline-ss-server-linux-* > sha256sums.txt)
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

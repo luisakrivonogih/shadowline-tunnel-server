@@ -162,6 +162,8 @@ type streamHandler struct {
 	readTimeout  time.Duration
 	authenticate StreamAuthenticateFunc
 	dialer       transport.StreamDialer
+	// keyDialers overrides dialer for clients of the given access key IDs.
+	keyDialers map[string]transport.StreamDialer
 }
 
 var _ StreamHandler = (*streamHandler)(nil)
@@ -364,8 +366,12 @@ func (h *streamHandler) handleConnection(ctx context.Context, outerConn transpor
 		return onet.NewConnectionError("ERR_RELAY_CLIENT", "Failed to relay traffic from client", err)
 	}
 
+	keyDialer := h.dialer
+	if d, ok := h.keyDialers[id]; ok {
+		keyDialer = d
+	}
 	dialer := transport.FuncStreamDialer(func(ctx context.Context, addr string) (transport.StreamConn, error) {
-		tgtConn, err := h.dialer.DialStream(ctx, tgtAddr)
+		tgtConn, err := keyDialer.DialStream(ctx, tgtAddr)
 		if err != nil {
 			return nil, err
 		}

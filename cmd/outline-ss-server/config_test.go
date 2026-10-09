@@ -203,8 +203,8 @@ func TestReadConfig(t *testing.T) {
 						ListenerConfig{WebsocketPacket: &WebsocketConfig{WebServer: "my_web_server", Path: "/SECRET/udp"}},
 					},
 					Keys: []KeyConfig{
-						KeyConfig{"user-0", "chacha20-ietf-poly1305", "Secret0"},
-						KeyConfig{"user-1", "chacha20-ietf-poly1305", "Secret1"},
+						KeyConfig{ID: "user-0", Cipher: "chacha20-ietf-poly1305", Secret: "Secret0"},
+						KeyConfig{ID: "user-1", Cipher: "chacha20-ietf-poly1305", Secret: "Secret1"},
 					},
 				},
 				ServiceConfig{
@@ -213,7 +213,7 @@ func TestReadConfig(t *testing.T) {
 						ListenerConfig{UDP: &TCPUDPConfig{Address: "[::]:9001"}},
 					},
 					Keys: []KeyConfig{
-						KeyConfig{"user-2", "chacha20-ietf-poly1305", "Secret2"},
+						KeyConfig{ID: "user-2", Cipher: "chacha20-ietf-poly1305", Secret: "Secret2"},
 					},
 				},
 			},

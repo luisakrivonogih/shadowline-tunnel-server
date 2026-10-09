@@ -184,6 +184,12 @@ type KeyConfig struct {
 	ID     string
 	Cipher string
 	Secret string
+	// Fwmark, when non-zero, is set as SO_MARK on every socket opened for
+	// this key's clients (policy routing, traffic shaping).
+	Fwmark uint
+	// Socks5 ("host:port"), when set, sends this key's traffic to that SOCKS5
+	// server instead of directly.
+	Socks5 string
 }
 
 type LegacyKeyServiceConfig struct {
